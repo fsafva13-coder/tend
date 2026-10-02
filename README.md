@@ -101,6 +101,21 @@ Every button press and every sentence in the twin becomes a real MCP tool call. 
 
 Because Alexa+ speaks MCP, the same server can drive real Alexa-compatible devices in place of the simulated ones.
 
+### From simulation to a real home
+
+Tend uses no cameras. In the twin, buttons stand in for sensors; in a real home the same signals come from small Alexa-compatible devices. Motion and door sensors tell Tend which room she is in and for how long, without recording anyone in her bedroom or bathroom.
+
+| In the twin | In a real home |
+|---|---|
+| "Gets out of bed" / "Back in bed" | Bed pressure pad or bedroom motion sensor |
+| "Enters / Leaves bathroom" | Motion sensor plus a door contact sensor |
+| "Goes to kitchen" | Motion sensor |
+| Pill box compartments | Smart pill dispenser with a lock and a lid sensor |
+| Rooms lighting up | Smart bulbs or smart plugs |
+| Caregiver's phone panel | Phone notifications (see Future Improvements) |
+
+The MCP tools stay the same; only the source of the events changes.
+
 ### The rules
 
 | # | Situation | What Tend does | Severity |
@@ -248,6 +263,7 @@ In the walkthrough above, a calm evening produces **one** notification for the c
 - Replace the keyword intent parser with an LLM, keeping the rules engine as the only decision-maker.
 - Smarter urgent-word detection: "that was helpful" currently matches "help". A false alarm is the safer failure, but it should be rare.
 - Real devices: Alexa-compatible smart lock pill dispenser, lights and motion sensors in place of the simulation.
+- Deliver caregiver alerts to a real phone: Alexa app notifications first, text messages for urgent alerts, then a small companion app with the Off duty button and recap.
 - A week view for the caregiver: adherence, sleep interruptions, alerts and interruptions avoided.
 - Several caregivers with a handover between them.
 - Caregiver-editable care plan in the app instead of a JSON file.

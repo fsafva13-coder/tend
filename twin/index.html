@@ -290,7 +290,11 @@ function render() {
     box.appendChild(el);
   }
   const q = s.queued_for_caregiver.length;
-  $("queued").textContent = off ? (q ? q + " non-urgent item" + (q > 1 ? "s" : "") + " held for the recap" : "Phone is quiet. Enjoy your evening.") : "";
+  const urgentNow = items.some(n => n.severity === "urgent");
+  $("queued").textContent = !off ? "" :
+    urgentNow ? "Urgent alerts always reach you, even off duty." :
+    q ? q + " non-urgent item" + (q > 1 ? "s" : "") + " held for the recap" :
+    "Phone is quiet. Tend has it covered.";
   if (s.caregiver_inbox.length > seenInbox && items[0] && items[0].severity === "urgent") {
     $("phone").classList.remove("shake"); void $("phone").offsetWidth; $("phone").classList.add("shake");
   }
