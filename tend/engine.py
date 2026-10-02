@@ -28,8 +28,12 @@ class SimClock:
         return self.now
 
     def set_time(self, hhmm: str) -> datetime:
+        """Jump to the next time the clock shows hh:mm (tomorrow if it has passed today)."""
         h, m = map(int, hhmm.split(":"))
-        self.now = self.now.replace(hour=h, minute=m, second=0, microsecond=0)
+        target = self.now.replace(hour=h, minute=m, second=0, microsecond=0)
+        if target < self.now:
+            target += timedelta(days=1)
+        self.now = target
         return self.now
 
 
@@ -102,6 +106,7 @@ class HomeState:
     queue: list[dict] = field(default_factory=list)    # held until off duty ends
     handled: list[dict] = field(default_factory=list)  # done silently while off duty
     moments: list[str] = field(default_factory=list)   # nice things from her day
+    day: Optional[object] = None                        # the date the daily state belongs to
 
 
 # ---------------------------------------------------------------- engine
@@ -110,6 +115,19 @@ class TendEngine:
         self.plan = plan
         self.clock = clock
         self.state = HomeState(locked={m.compartment: True for m in plan.medications})
+        self.state.day = clock.now.date()
+
+    def _roll_day(self) -> None:
+        """A new day: relock the pill box and start the daily schedule again."""
+        st = self.state
+        if self.clock.now.date() == st.day:
+            return
+        st.day = self.clock.now.date()
+        st.locked = {m.compartment: True for m in self.plan.medications}
+        st.taken.clear(); st.held_for_food.clear(); st.unlocked_at.clear()
+        st.meals_logged.clear(); st.fired.clear()
+        st.toilet_due_at = None
+        st.last_water = None
 
     # Events that prove the patient is up and about.
     ACTIVITY = {"unlock", "request_denied", "held_for_food", "meal", "taken", "water",
@@ -142,11 +160,11 @@ class TendEngine:
         limit = timedelta(minutes=self.plan.meal_counts_for_food_rule_minutes)
         return any(self.clock.now - t <= limit for _, t in self.state.meals_logged)
 
-    def _unlock(self, med: Medication, rule: str) -> Decision:
+    def _unlock(self, med: Medication, rule: str, log_kind: str = "unlock") -> Decision:
         self.state.locked[med.compartment] = False
         self.state.unlocked_at[med.compartment] = self.clock.now
         self.state.held_for_food.discard(med.id)
-        self._log("unlock", compartment=med.compartment, med=med.id, rule=rule)
+        self._log(log_kind, compartment=med.compartment, med=med.id, rule=rule)
         return Decision("unlock",
                         f"Compartment {med.compartment} is open. It's your {med.name}.",
                         compartment=med.compartment, rule=rule)
@@ -154,6 +172,7 @@ class TendEngine:
     # -- events from the home
     def request_pills(self) -> Decision:
         """The patient asks for her pills (voice) or touches the pill box."""
+        self._roll_day()
         med = self._due_med()
 
         # Rule 3: nothing is due -> stay locked, say when it opens next.
@@ -164,6 +183,7 @@ class TendEngine:
             return Decision("keep_locked", "It's not time for your pills yet." + when,
                             rule="R3_outside_window")
 
+        self.state.fired.add(f"due:{med.id}")
         # Rule 2: must be taken with food and no recent meal -> hold.
         if med.with_food and not self._ate_recently():
             self.state.held_for_food.add(med.id)
@@ -178,6 +198,7 @@ class TendEngine:
 
     def log_meal(self, meal: str) -> Optional[Decision]:
         """Patient says "I ate" (or the kitchen sensor confirms a meal)."""
+        self._roll_day()
         self.state.meals_logged.append((meal, self.clock.now))
         self._log("meal", meal=meal)
         # Rule 2 continued: a pill held for food unlocks once she has eaten.
@@ -204,6 +225,7 @@ class TendEngine:
 
     # -- more events from the home
     def log_water(self) -> None:
+        self._roll_day()
         self.state.last_water = self.clock.now
         self._log("water")
 
@@ -217,6 +239,7 @@ class TendEngine:
 
     def motion(self, event: str) -> list[Decision]:
         """Sensor events: 'left_bed', 'back_in_bed', 'entered_bathroom', 'left_bathroom'."""
+        self._roll_day()
         self._log("motion", event=event)
         if event == "entered_bathroom":
             self.state.bathroom_since = self.clock.now
@@ -239,8 +262,10 @@ class TendEngine:
 
     # -- time-based rules, called every simulated minute
     def tick(self) -> list[Decision]:
+        self._roll_day()
         out: list[Decision] = []
-        for rule in (self._no_reply, self._r4_unopened, self._r9_bathroom, self._r10_no_movement,
+        for rule in (self._no_reply, self._r1_due_time, self._r14_missed_dose, self._r4_unopened,
+                     self._r9_bathroom, self._r10_no_movement,
                      self._r5_toilet, self._r6_water, self._r7_meals):
             d = rule()
             if d:
@@ -250,6 +275,53 @@ class TendEngine:
         if recap:
             out.append(recap)
         return out
+
+    # -- Rule 1/2 at due time: Tend offers the pills itself, she doesn't have to ask
+    def _r1_due_time(self) -> Optional[Decision]:
+        now = self.clock.now
+        for med in self.plan.medications:
+            key = f"due:{med.id}"
+            start = med.due_at(now)
+            if med.id in self.state.taken or key in self.state.fired:
+                continue
+            if not (start <= now <= start + timedelta(minutes=med.window_minutes)):
+                continue
+            if self._due_med() is not med:
+                continue  # an earlier dose is still open; one at a time
+            self.state.fired.add(key)
+            if med.with_food and not self._ate_recently():
+                self.state.held_for_food.add(med.id)
+                self._log("offer_held", med=med.id)
+                return Decision("keep_locked", f"It's time for your {med.name}, but it needs "
+                                "food first. Let's eat, then tell me and I'll open the box.",
+                                compartment=med.compartment, rule="R2_due_food_first")
+            d = self._unlock(med, "R1_due_time_unlock", log_kind="offer_unlock")
+            d.message = f"It's time for your {med.name}. Compartment {med.compartment} is open."
+            return d
+        return None
+
+    # -- Rule 14: a dose Tend offered was never taken -> relock and tell the caregiver
+    def _r14_missed_dose(self) -> Optional[Decision]:
+        now, st = self.clock.now, self.state
+        for med in self.plan.medications:
+            key = f"missed:{med.id}"
+            end = med.due_at(now) + timedelta(minutes=med.window_minutes)
+            if med.id in st.taken or key in st.fired or f"due:{med.id}" not in st.fired:
+                continue
+            if now <= end:
+                continue
+            st.fired.add(key)
+            st.locked[med.compartment] = True
+            st.unlocked_at.pop(med.compartment, None)
+            st.held_for_food.discard(med.id)
+            if st.checkin_reason == f"unopened:{med.compartment}":
+                self._clear_checkin()
+            self._log("missed", med=med.id)
+            return Decision("escalate", f"{self.plan.patient_name} missed her {med.time} "
+                            f"{med.name}. The box is locked again.",
+                            severity="escalate", compartment=med.compartment,
+                            rule="R14_missed_dose")
+        return None
 
     # -- check-ins: ask first, alert the caregiver only if there is no answer
     def _checkin(self, reason: str, message: str, rule: str, **kw) -> Decision:
@@ -313,7 +385,7 @@ class TendEngine:
         deadline = self._at(th["usual_wake_time"]) + timedelta(minutes=th["no_movement_grace_minutes"])
         today = self.clock.now.replace(hour=0, minute=0, second=0, microsecond=0)
         active_today = st.last_activity is not None and st.last_activity >= today
-        if self.clock.now >= deadline and not active_today:
+        if deadline <= self.clock.now < self._at(th["no_movement_until"]) and not active_today:
             st.fired.add(key)
             return self._checkin("no_movement", "Good morning. Are you awake and okay?",
                                  "R10_no_movement_checkin")
@@ -347,7 +419,8 @@ class TendEngine:
             key = f"meal:{meal}"
             if meal in eaten or key in self.state.fired:
                 continue
-            if self.clock.now >= self._at(hhmm) + grace:
+            due = self._at(hhmm) + grace
+            if due <= self.clock.now < due + timedelta(minutes=self.plan.t("meal_reminder_window_minutes")):
                 self.state.fired.add(key)
                 self._log("remind", what=meal)
                 return Decision("remind", f"Have you had your {meal}? Let's eat something.",
@@ -356,6 +429,7 @@ class TendEngine:
 
     # -- Rule 11: urgent words are never delayed, even when the caregiver is off duty
     def heard(self, text: str) -> list[Decision]:
+        self._roll_day()
         self._log("heard", text=text)
         low = text.lower()
         if any(p in low for p in self.plan.t("urgent_phrases")):
@@ -416,20 +490,47 @@ class TendEngine:
         st, name = self.state, self.plan.patient_name
         since = st.off_duty_from or self.clock.now.replace(hour=0, minute=0)
         ev = [e for e in st.events if datetime.fromisoformat(e["time"]) >= since]
-        doses = sum(e["kind"] == "taken" for e in ev)
+        names = {m.id: m.name for m in self.plan.medications}
+        doses = [names[e["med"]] for e in ev if e["kind"] == "taken"]
         meals = [e["meal"] for e in ev if e["kind"] == "meal"]
         waters = sum(e["kind"] == "water" for e in ev)
-        parts = [f"While you were off duty: {name} took {doses} dose{'s' if doses != 1 else ''}"]
-        parts.append(f"ate {', '.join(meals)}" if meals else "no meal logged")
-        parts.append(f"drank water {waters} time{'s' if waters != 1 else ''}")
-        text = ", ".join(parts) + f". I handled {len(st.handled)} reminder" \
-            + ("s" if len(st.handled) != 1 else "") + " for you."
-        if st.queue:
-            text += " Needs you: " + " ".join(q["message"] for q in st.queue)
+        did = []
+        if meals:
+            did.append("ate " + " and ".join(meals))
+        if doses:
+            did.append("took her " + " and ".join(doses))
+        if waters:
+            did.append("drank water " + ("once" if waters == 1 else f"{waters} times"))
+        # Things still open right now that the caregiver should know about.
+        needs = [q["message"] for q in st.queue]
+        eaten = {m for m, _ in st.meals_logged}
+        for meal in self.plan.meals:
+            if f"meal:{meal}" in st.fired and meal not in eaten and \
+                    self._at(self.plan.meals[meal]) >= since:
+                needs.append(f"She hasn't had {meal} yet.")
+        for med in self.plan.medications:
+            if f"due:{med.id}" in st.fired and med.id not in st.taken \
+                    and f"missed:{med.id}" not in st.fired:
+                needs.append(f"Her {med.time} {med.name} hasn't been taken yet.")
+
+        def listed(items):
+            return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+        if did:
+            text = f"While you were off duty, {name} {listed(did)}."
+        elif needs:
+            text = "While you were off duty:"
+        else:
+            text = f"While you were off duty, {name} had a quiet time."
+        if st.handled:
+            n = len(st.handled)
+            text += f" I handled {n} reminder{'s' if n != 1 else ''} for you."
+        if needs:
+            text += " Needs you: " + " ".join(needs)
         else:
             text += " Nothing needs you tonight."
         if st.moments:
-            text += f" Something nice: {st.moments[-1]}"
+            text += f' Something nice from her day: "{st.moments[-1]}"' 
         return text
 
     # -- helpers
@@ -446,9 +547,17 @@ class TendEngine:
         self.state.checkin_reason = ""
 
     def snapshot(self) -> dict:
+        self._roll_day()
         return {
             "time": self.clock.now.strftime("%H:%M"),
             "locked": {str(k): v for k, v in self.state.locked.items()},
+            "patient": self.plan.patient_name,
+            "caregiver": self.plan.caregiver_name,
+            "compartments": [{
+                "compartment": m.compartment, "name": m.name, "time": m.time,
+                "with_food": m.with_food, "locked": self.state.locked[m.compartment],
+                "taken": m.id in self.state.taken, "held": m.id in self.state.held_for_food,
+            } for m in self.plan.medications],
             "taken": sorted(self.state.taken),
             "held_for_food": sorted(self.state.held_for_food),
             "meals": [(m, t.strftime("%H:%M")) for m, t in self.state.meals_logged],

@@ -126,7 +126,7 @@ def test_r13_recap_when_off_duty_ends(engine):
     recap = [d for d in fired if d.rule == "R13_recap"]
     assert len(recap) == 1
     msg = recap[0].message
-    assert "1 dose" in msg and "dinner" in msg and "kittens" in msg
+    assert "took her Metformin" in msg and "ate dinner" in msg and "kittens" in msg
     assert "Nothing needs you" in msg
     assert engine.state.off_duty_until is None
 
@@ -140,3 +140,65 @@ def test_r13_recap_lists_what_needs_the_caregiver(engine):
     fired = run(engine, 61)
     recap = [d for d in fired if d.rule == "R13_recap"][0]
     assert "Needs you" in recap.message and "pills" in recap.message
+
+
+# ---- A new day starts fresh
+def test_new_day_relocks_and_resets_schedule(engine):
+    engine.clock.set_time("09:05")
+    engine.request_pills()
+    engine.mark_taken(2)
+    engine.clock.set_time("09:05")      # same time -> stays today
+    assert engine.request_pills().action == "keep_locked"
+    engine.clock.set_time("02:00")      # earlier than now -> tomorrow
+    engine.clock.set_time("09:05")
+    d = engine.request_pills()
+    assert d.action == "unlock" and d.compartment == 2
+
+
+# ---- Pills are offered at their time, and a missed dose reaches the caregiver
+def test_r1_pills_offered_at_due_time_without_asking(engine):
+    engine.clock.set_time("08:50")
+    fired = run(engine, 15)                       # 09:00 furosemide has no food rule
+    offer = [d for d in fired if d.rule == "R1_due_time_unlock"]
+    assert len(offer) == 1 and offer[0].compartment == 2
+    assert engine.state.locked[2] is False
+
+
+def test_r2_due_time_holds_until_she_eats(engine):
+    engine.clock.set_time("19:55")
+    fired = run(engine, 10)
+    assert "R2_due_food_first" in rules(fired)
+    assert engine.state.locked[3] is True
+    d = engine.log_meal("dinner")
+    assert d.action == "unlock" and d.compartment == 3
+
+
+def test_r14_missed_dose_is_queued_off_duty_and_in_recap(engine):
+    engine.clock.set_time("19:00")
+    engine.start_off_duty("22:00")
+    fired = run(engine, 181)                      # dose offered at 20:00, never taken
+    missed = [d for d in fired if d.rule == "R14_missed_dose"]
+    assert len(missed) == 1 and missed[0].caregiver == "queued"
+    assert engine.state.locked[3] is True
+    recap = [d for d in fired if d.rule == "R13_recap"][0]
+    assert "Needs you" in recap.message and "missed her 20:00" in recap.message
+
+
+def test_no_missed_dose_alert_for_times_that_were_skipped(engine):
+    engine.clock.set_time("19:00")                # jumped past the morning doses
+    assert "R14_missed_dose" not in rules(run(engine, 30))
+
+
+def test_no_stale_meal_reminder_after_a_jump(engine):
+    engine.clock.set_time("19:00")
+    msgs = [d.message for d in run(engine, 20)]
+    assert not any("lunch" in m or "breakfast" in m for m in msgs)
+
+
+def test_recap_is_honest_about_what_is_still_open(engine):
+    engine.clock.set_time("19:00")
+    engine.start_off_duty("21:00")
+    recap = [d for d in run(engine, 120) if d.rule == "R13_recap"][0]
+    assert "quiet" not in recap.message
+    assert "hasn't had dinner" in recap.message
+    assert "20:00 Metformin 500mg hasn't been taken" in recap.message

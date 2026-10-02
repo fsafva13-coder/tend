@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tend · Digital Twin Home</title>
+<style>
+  :root {
+    --ivory: #FAF6F1; --card: #FFFFFF; --plum: #3B2A3F; --plum-soft: #6B5870;
+    --rose: #B76E79; --blush: #F4E6E3; --line: #E9DED8; --sage: #5F8068;
+    --sage-bg: #E7F0E9; --amber: #B7791F; --amber-bg: #FBF1DC; --urgent: #B3261E;
+    --urgent-bg: #FBE9E7; --night: #241B2B; --glow: #FFD98A;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--ivory); color: var(--plum);
+         font: 15px/1.45 "Segoe UI", system-ui, -apple-system, sans-serif; }
+  h1, h2 { font-family: Georgia, "Times New Roman", serif; font-weight: 500; margin: 0; }
+  button { font: inherit; cursor: pointer; border-radius: 999px; border: 1px solid var(--line);
+           background: var(--card); color: var(--plum); padding: 7px 14px; }
+  button:hover { border-color: var(--rose); }
+  button.primary { background: var(--plum); color: #fff; border-color: var(--plum); }
+  button.rose { background: var(--rose); color: #fff; border-color: var(--rose); }
+  button:disabled { opacity: .45; cursor: default; }
+
+  header { display: flex; align-items: center; gap: 18px; padding: 14px 24px;
+           border-bottom: 1px solid var(--line); background: var(--card); flex-wrap: wrap; }
+  .brand h1 { font-size: 26px; letter-spacing: .5px; }
+  .brand small { color: var(--plum-soft); }
+  #clock { font: 500 34px Georgia, serif; min-width: 104px; text-align: center; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .controls select { font: inherit; border-radius: 999px; padding: 7px 10px; border: 1px solid var(--line);
+                     background: var(--card); color: var(--plum); }
+  .spacer { flex: 1; }
+  .badge { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--blush);
+           color: var(--plum); white-space: nowrap; }
+
+  main { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(420px, 1.5fr) minmax(280px, 1fr);
+         gap: 18px; padding: 18px 24px; }
+  @media (max-width: 1100px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 16px; }
+  .card h2 { font-size: 19px; margin-bottom: 2px; }
+  .sub { color: var(--plum-soft); font-size: 13px; margin-bottom: 12px; }
+
+  /* Amma */
+  #chat { height: 330px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+          padding: 4px 2px 8px; }
+  .bubble { max-width: 88%; padding: 10px 14px; border-radius: 16px; font-size: 16px; }
+  .bubble.amma { align-self: flex-end; background: var(--plum); color: #fff; border-bottom-right-radius: 4px; }
+  .bubble.tend { align-self: flex-start; background: var(--blush); border-bottom-left-radius: 4px; }
+  .bubble .when { display: block; font-size: 11px; opacity: .65; margin-top: 2px; }
+  .sayrow { display: flex; gap: 8px; margin-top: 8px; }
+  .sayrow input { flex: 1; font: inherit; padding: 9px 14px; border-radius: 999px;
+                  border: 1px solid var(--line); background: var(--ivory); color: var(--plum); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .chips button { font-size: 13px; padding: 5px 11px; }
+  #mic.on { background: var(--urgent); border-color: var(--urgent); color: #fff; }
+
+  /* Home */
+  #plan { width: 100%; border-radius: 14px; display: block; }
+  .room { fill: #F7F1EA; stroke: #D9CCC3; stroke-width: 2; transition: fill .5s; }
+  .night .room { fill: #2E2436; stroke: #4A3D52; }
+  .room.lit, .night .room.lit { fill: var(--glow); }
+  .rlabel { font: 13px "Segoe UI", sans-serif; fill: var(--plum-soft); }
+  .night .rlabel { fill: #BDAEC4; }
+  .lit + .rlabel, .night .lit + .rlabel { fill: var(--plum); }
+  #amma { transition: transform .8s ease; }
+  .acts { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 14px; }
+  .acts button { font-size: 13px; padding: 5px 11px; }
+  #pillbox { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+  .comp { border: 2px solid var(--line); border-radius: 14px; padding: 10px; text-align: center;
+          background: var(--ivory); transition: all .4s; }
+  .comp .ico { font-size: 24px; }
+  .comp .nm { font-size: 13px; font-weight: 600; }
+  .comp .tm { font-size: 12px; color: var(--plum-soft); }
+  .comp .st { font-size: 12px; margin-top: 4px; font-weight: 600; }
+  .comp.open { border-color: var(--sage); background: var(--sage-bg); box-shadow: 0 0 0 4px #5F806822; cursor: pointer; }
+  .comp.open .st { color: var(--sage); }
+  .comp.held { border-color: var(--amber); background: var(--amber-bg); }
+  .comp.held .st { color: var(--amber); }
+  .comp.taken { opacity: .55; }
+
+  /* Sara */
+  .phone { border: 9px solid var(--plum); border-radius: 34px; padding: 14px 12px; background: var(--ivory);
+           min-height: 430px; }
+  .phone.shake { animation: shake .5s 2; }
+  @keyframes shake { 25% { transform: translateX(-5px) } 75% { transform: translateX(5px) } }
+  #duty { display: flex; align-items: center; justify-content: space-between; gap: 8px;
+          padding: 10px 12px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); }
+  #duty.off { background: var(--plum); color: #fff; border-color: var(--plum); }
+  #duty b { font-size: 14px; }
+  #duty select { font: inherit; border-radius: 999px; padding: 4px 8px; border: 1px solid var(--line); }
+  #inbox { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+  .note { background: var(--card); border: 1px solid var(--line); border-left: 5px solid var(--plum-soft);
+          border-radius: 12px; padding: 9px 11px; font-size: 14px; }
+  .note .hd { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--plum-soft);
+              display: flex; justify-content: space-between; margin-bottom: 2px; }
+  .note.urgent { border-left-color: var(--urgent); background: var(--urgent-bg); }
+  .note.urgent .hd { color: var(--urgent); font-weight: 700; }
+  .note.escalate { border-left-color: var(--amber); background: var(--amber-bg); }
+  .note.recap { border-left-color: var(--rose); background: var(--blush); }
+  .empty { color: var(--plum-soft); font-size: 13px; text-align: center; padding: 26px 8px; }
+  #queued { font-size: 12px; color: var(--plum-soft); margin-top: 8px; text-align: center; }
+
+  /* MCP log */
+  #logwrap { margin: 0 24px 24px; }
+  #log { font: 12.5px/1.5 Consolas, "Courier New", monospace; max-height: 170px; overflow-y: auto;
+         background: var(--night); color: #E9DFF0; border-radius: 12px; padding: 10px 14px; }
+  #log .t { color: var(--glow); } #log .r { color: #9FD6AE; } #log .u { color: #FF9A8F; }
+  .disc { text-align: center; color: var(--plum-soft); font-size: 12px; padding: 0 24px 22px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><h1>Tend</h1><small>Digital twin home</small></div>
+  <div id="clock">--:--</div>
+  <div class="controls">
+    <button id="play" class="primary">▶ Play</button>
+    <select id="speed" title="How fast the clock runs when playing">
+      <option value="60000,1">Real time</option>
+      <option value="1000,1" selected>1 min / sec</option>
+      <option value="500,5">10 min / sec</option>
+    </select>
+    <button id="now" title="Set the clock to the real time right now">Now</button>
+    <button data-adv="15">+15 min</button>
+    <button data-adv="60">+1 hour</button>
+    <button data-jump="07:00">Morning</button>
+    <button data-jump="19:00">Evening</button>
+    <button data-jump="02:00">Night</button>
+    <button id="reset">Reset day</button>
+  </div>
+  <div class="spacer"></div>
+  <button id="sound">🔊 Voice on</button>
+  <span class="badge" id="proto">MCP …</span>
+</header>
+
+<main>
+  <section class="card">
+    <h2 id="pname">Amma</h2>
+    <div class="sub">Talks to Alexa. Tend answers and acts.</div>
+    <div id="chat"></div>
+    <div class="sayrow">
+      <input id="say" placeholder="Say something…" autocomplete="off">
+      <button id="mic" title="Speak">🎤</button>
+      <button id="send" class="rose">Send</button>
+    </div>
+    <div class="chips" id="phrases"></div>
+  </section>
+
+  <section class="card">
+    <h2>Home</h2>
+    <div class="sub">Simulated sensors, lights and pill box, driven by Tend's MCP tools.</div>
+    <svg id="plan" viewBox="0 0 520 250" role="img" aria-label="Floor plan of the home">
+      <rect class="room" id="r-bedroom" x="10" y="10" width="190" height="150" rx="10"/>
+      <text class="rlabel" x="24" y="34">Bedroom</text>
+      <rect class="room" id="r-hallway" x="10" y="170" width="500" height="70" rx="10"/>
+      <text class="rlabel" x="24" y="194">Hallway</text>
+      <rect class="room" id="r-bathroom" x="210" y="10" width="120" height="150" rx="10"/>
+      <text class="rlabel" x="224" y="34">Bathroom</text>
+      <rect class="room" id="r-kitchen" x="340" y="10" width="170" height="150" rx="10"/>
+      <text class="rlabel" x="354" y="34">Kitchen</text>
+      <rect x="40" y="70" width="90" height="60" rx="8" fill="#D9C6CE" opacity=".8"/>
+      <rect x="40" y="70" width="26" height="60" rx="8" fill="#C2A7B3"/>
+      <g id="amma" transform="translate(96,100)">
+        <circle r="17" fill="#B76E79"/><circle r="17" fill="none" stroke="#fff" stroke-width="3"/>
+        <text y="6" text-anchor="middle" font-size="17" fill="#fff" font-family="Georgia">A</text>
+      </g>
+    </svg>
+    <div class="acts">
+      <button data-move="left_bed">Gets out of bed</button>
+      <button data-move="entered_bathroom">Enters bathroom</button>
+      <button data-move="left_bathroom">Leaves bathroom</button>
+      <button data-move="kitchen">Goes to kitchen</button>
+      <button data-move="back_in_bed">Back in bed</button>
+    </div>
+    <div id="pillbox"></div>
+  </section>
+
+  <section class="card">
+    <h2 id="cname">Sara</h2>
+    <div class="sub">Her phone. Only what truly needs her.</div>
+    <div class="phone" id="phone">
+      <div id="duty">
+        <b id="dutytxt">On duty</b>
+        <span><select id="until"><option>21:00</option><option>22:00</option><option>23:00</option><option>07:00</option></select>
+        <button id="offduty" class="rose">Go off duty</button></span>
+      </div>
+      <div id="inbox"></div>
+      <div id="queued"></div>
+    </div>
+  </section>
+</main>
+
+<div id="logwrap"><div id="log"></div></div>
+<div class="disc">Simulation for demonstration. Tend is not a medical device and never changes a dose.</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let state = null, busy = false, playing = false, voice = true, where = "bed", seenInbox = 0;
+const SPOT = { bed: [96, 100], bedroom: [160, 120], hallway: [260, 205], bathroom: [270, 100], kitchen: [425, 100] };
+const PHRASES = ["Can I have my pills?", "I ate", "I drank water", "I took my pills", "I'm fine",
+                 "The neighbour's cat had kittens!", "Help, I fell"];
+
+async function api(path, body) {
+  const res = await fetch(path, body ? { method: "POST", headers: { "Content-Type": "application/json" },
+                                         body: JSON.stringify(body) } : undefined);
+  if (!res.ok) throw new Error("Request failed: " + res.status);
+  return res.json();
+}
+const tool = (name, args = {}) => api("/api/tool", { name, args });
+
+function speak(text) {
+  if (!voice || !window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(text); u.rate = 0.95;
+  speechSynthesis.speak(u);
+}
+function bubble(who, text, at) {
+  const d = document.createElement("div");
+  d.className = "bubble " + who;
+  d.textContent = text;
+  const w = document.createElement("span"); w.className = "when";
+  w.textContent = (who === "tend" ? "Tend · " : "") + (at || (state ? state.time : ""));
+  d.appendChild(w); $("chat").appendChild(d); $("chat").scrollTop = 1e9;
+  if (who === "tend") speak(text);
+}
+function logCall(c) {
+  const row = document.createElement("div");
+  const r = Array.isArray(c.result) ? c.result : [c.result];
+  const rules = r.map(x => x && x.rule).filter(Boolean).join(", ");
+  const urgent = r.some(x => x && x.severity === "urgent");
+  row.innerHTML = `<span class="t">tools/call</span> ${c.tool}(${JSON.stringify(c.args)})` +
+    (rules ? ` → <span class="${urgent ? "u" : "r"}">${rules}</span>` : "");
+  $("log").appendChild(row); $("log").scrollTop = 1e9;
+}
+
+// Show what Tend decided. Words for Amma go to her panel; alerts reach Sara via the inbox.
+function showDecisions(list) {
+  for (const d of list) {
+    if (!d || !d.message || d.rule === "R13_recap" || d.rule === "R12_off_duty_start") continue;
+    if (d.severity === "urgent") bubble("tend", "I've let " + state.caregiver + " know. Stay where you are, help is coming.", d.time);
+    else if (d.action !== "escalate") bubble("tend", d.message, d.time);
+  }
+}
+function handle(out) {
+  state = out.state;
+  $("proto").textContent = "MCP " + out.protocol + " · Streamable HTTP";
+  for (const c of out.calls) {
+    if (c.tool === "advance_time" || c.tool === "set_time") { if (c.result.decisions.length) logCall({ ...c, result: c.result.decisions }); showDecisions(c.result.decisions); }
+    else { if (c.tool !== "(no tool)") logCall(c); showDecisions(Array.isArray(c.result) ? c.result : [c.result]); }
+  }
+  render();
+}
+
+function render() {
+  const s = state; if (!s) return;
+  $("clock").textContent = s.time;
+  $("pname").textContent = s.patient; $("cname").textContent = s.caregiver;
+  const h = +s.time.slice(0, 2);
+  $("plan").classList.toggle("night", h >= 21 || h < 6);
+  for (const room of ["bedroom", "hallway", "bathroom", "kitchen"])
+    $("r-" + room).classList.toggle("lit", !!s.lights[room]);
+  const [x, y] = SPOT[where];
+  $("amma").setAttribute("transform", `translate(${x},${y})`);
+
+  $("pillbox").innerHTML = "";
+  for (const c of s.compartments) {
+    const cls = c.taken ? "taken" : !c.locked ? "open" : c.held ? "held" : "";
+    const st = c.taken ? "Taken ✓" : !c.locked ? "OPEN · tap to take" : c.held ? "Held · eat first" : "Locked";
+    const el = document.createElement("div");
+    el.className = "comp " + cls;
+    el.innerHTML = `<div class="ico">${c.taken ? "✅" : c.locked ? "🔒" : "💊"}</div>
+      <div class="nm"></div><div class="tm">${c.time}${c.with_food ? " · with food" : ""}</div><div class="st">${st}</div>`;
+    el.querySelector(".nm").textContent = c.name;
+    if (!c.locked && !c.taken) el.onclick = () => run(() => tool("mark_taken", { compartment: c.compartment }));
+    $("pillbox").appendChild(el);
+  }
+
+  const off = !!s.off_duty_until;
+  $("duty").classList.toggle("off", off);
+  $("dutytxt").textContent = off ? "Off duty until " + s.off_duty_until : "On duty";
+  $("offduty").disabled = off; $("until").disabled = off;
+  const box = $("inbox"); box.innerHTML = "";
+  const items = [...s.caregiver_inbox].reverse();
+  if (!items.length) box.innerHTML = `<div class="empty">No notifications.<br>Tend is handling the day.</div>`;
+  for (const n of items) {
+    const kind = n.rule === "R13_recap" ? "recap" : n.severity;
+    const el = document.createElement("div"); el.className = "note " + kind;
+    const label = kind === "urgent" ? "Urgent" : kind === "recap" ? "Evening recap" : "Needs you";
+    el.innerHTML = `<div class="hd"><span>${label}</span><span>${n.time}</span></div><div class="msg"></div>`;
+    el.querySelector(".msg").textContent = n.message;
+    box.appendChild(el);
+  }
+  const q = s.queued_for_caregiver.length;
+  $("queued").textContent = off ? (q ? q + " non-urgent item" + (q > 1 ? "s" : "") + " held for the recap" : "Phone is quiet. Enjoy your evening.") : "";
+  if (s.caregiver_inbox.length > seenInbox && items[0] && items[0].severity === "urgent") {
+    $("phone").classList.remove("shake"); void $("phone").offsetWidth; $("phone").classList.add("shake");
+  }
+  seenInbox = s.caregiver_inbox.length;
+}
+
+async function run(fn) {
+  if (busy) { setTimeout(() => run(fn), 120); return; }  // wait for the call in flight
+  busy = true;
+  try { handle(await fn()); }
+  catch (e) { bubble("tend", "I can't reach the Tend server. Is server.py running?"); stop(); }
+  finally { busy = false; }
+}
+function stop() { playing = false; $("play").textContent = "▶ Play"; }
+let timer = null;
+function schedule() {
+  clearInterval(timer);
+  const [every, step] = $("speed").value.split(",").map(Number);
+  timer = setInterval(() => { if (playing && !busy) run(() => tool("advance_time", { minutes: step })); }, every);
+}
+$("speed").onchange = schedule; schedule();
+$("now").onclick = () => {
+  const d = new Date(), t = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+  run(() => tool("set_time", { hhmm: t }));
+};
+
+$("play").onclick = () => { playing = !playing; $("play").textContent = playing ? "⏸ Pause" : "▶ Play"; };
+document.querySelectorAll("[data-adv]").forEach(b => b.onclick = () => run(() => tool("advance_time", { minutes: +b.dataset.adv })));
+document.querySelectorAll("[data-jump]").forEach(b => b.onclick = () => {
+  const t = b.dataset.jump; if (t === "02:00" || t === "07:00") where = "bed";
+  run(() => tool("set_time", { hhmm: t }));
+});
+$("reset").onclick = () => { stop(); where = "bed"; $("chat").innerHTML = ""; $("log").innerHTML = ""; seenInbox = 0;
+  run(() => tool("reset_day", { hhmm: "07:00" })); };
+$("sound").onclick = () => { voice = !voice; $("sound").textContent = voice ? "🔊 Voice on" : "🔇 Voice off";
+  if (!voice && window.speechSynthesis) speechSynthesis.cancel(); };
+
+document.querySelectorAll("[data-move]").forEach(b => b.onclick = () => {
+  const m = b.dataset.move;
+  where = { left_bed: "hallway", entered_bathroom: "bathroom", left_bathroom: "hallway", kitchen: "kitchen", back_in_bed: "bed" }[m];
+  run(() => tool("motion", { event: m === "kitchen" ? "in_kitchen" : m }));
+});
+$("offduty").onclick = () => run(() => tool("start_off_duty", { until_hhmm: $("until").value }));
+
+function say(text) {
+  text = text.trim(); if (!text) return;
+  bubble("amma", text); $("say").value = "";
+  run(() => api("/api/say", { text }));
+}
+$("send").onclick = () => say($("say").value);
+$("say").onkeydown = e => { if (e.key === "Enter") say($("say").value); };
+for (const p of PHRASES) { const b = document.createElement("button"); b.textContent = p; b.onclick = () => say(p); $("phrases").appendChild(b); }
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SR) {
+  const rec = new SR(); rec.lang = "en-US"; rec.interimResults = false; rec.maxAlternatives = 5;
+  // "ate" and "eight" sound the same, so fix the common mishearings and prefer
+  // whichever of the recogniser's guesses is something Tend understands.
+  const tidy = t => t.trim()
+    .replace(/^(i |i've |i have )?(8|eight)\.?$/i, "I ate")
+    .replace(/\b(i|i've|i have) (8|eight)\b/i, "I ate")
+    .replace(/\bpeels?\b|\bbills?\b/i, "pills");
+  const KNOWN = /pill|medicine|tablet|ate|eaten|breakfast|lunch|dinner|water|drank|fine|okay|help|fell|pain/i;
+  rec.onresult = e => {
+    const guesses = Array.from(e.results[0]).map(a => tidy(a.transcript));
+    say(guesses.find(g => KNOWN.test(g)) || guesses[0]);
+  };
+  rec.onend = () => $("mic").classList.remove("on");
+  $("mic").onclick = () => { try { rec.start(); $("mic").classList.add("on"); } catch (_) {} };
+} else { $("mic").disabled = true; $("mic").title = "Speech recognition needs Chrome or Edge"; }
+
+run(() => api("/api/state"));
+</script>
+</body>
+</html>

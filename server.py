@@ -18,6 +18,14 @@ plan = CarePlan.load(PLAN_PATH)
 clock = SimClock(datetime.now().replace(hour=7, minute=0, second=0, microsecond=0))
 engine = TendEngine(plan, clock)
 
+
+def _new_day(hhmm: str = "07:00") -> None:
+    """Start the simulated day again (used by the demo's reset button)."""
+    global clock, engine
+    h, m = map(int, hhmm.split(":"))
+    clock = SimClock(datetime.now().replace(hour=h, minute=m, second=0, microsecond=0))
+    engine = TendEngine(CarePlan.load(PLAN_PATH), clock)
+
 mcp = FastMCP(
     "tend",
     instructions=(
@@ -81,7 +89,7 @@ def heard(text: str) -> list[dict]:
 def note_moment(text: str) -> dict:
     """Save something nice from the patient's day for the caregiver's recap."""
     engine.note_moment(text)
-    return {"action": "none", "message": "Saved for the recap."}
+    return {"action": "none", "message": f"How lovely. I'll tell {plan.caregiver_name} this evening."}
 
 
 @mcp.tool()
@@ -108,11 +116,24 @@ def advance_time(minutes: int) -> dict:
 
 
 @mcp.tool()
-def set_time(hhmm: str) -> dict:
-    """Demo control: jump the simulated clock to a time like '08:05'."""
-    clock.set_time(hhmm)
+def reset_day(hhmm: str = "07:00") -> dict:
+    """Demo control: wipe the day and start again at the given time."""
+    _new_day(hhmm)
     return engine.snapshot()
 
 
+@mcp.tool()
+def set_time(hhmm: str) -> dict:
+    """Demo control: jump the simulated clock to a time like '08:05'."""
+    clock.set_time(hhmm)
+    # run one tick so anything already due (like the off-duty recap) happens now
+    fired = [{"time": clock.now.strftime("%H:%M"), **asdict(d)} for d in engine.tick()]
+    return {"time": clock.now.strftime("%H:%M"), "decisions": fired}
+
+
 if __name__ == "__main__":
-    mcp.run(transport="streamable-http")
+    print("Tend MCP server starting at http://127.0.0.1:8000/mcp  (Ctrl+C to stop)")
+    try:
+        mcp.run(transport="streamable-http")
+    except KeyboardInterrupt:
+        print("Tend MCP server stopped.")

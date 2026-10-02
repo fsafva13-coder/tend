@@ -59,6 +59,8 @@
       "can't breathe",
       "cannot breathe",
       "i'm bleeding"
-    ]
+    ],
+    "no_movement_until": "12:00",
+    "meal_reminder_window_minutes": 180
   }
 }
