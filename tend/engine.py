@@ -107,6 +107,7 @@ class HomeState:
     handled: list[dict] = field(default_factory=list)  # done silently while off duty
     moments: list[str] = field(default_factory=list)   # nice things from her day
     day: Optional[object] = None                        # the date the daily state belongs to
+    history: list[dict] = field(default_factory=list)   # one summary per finished day
 
 
 # ---------------------------------------------------------------- engine
@@ -122,6 +123,8 @@ class TendEngine:
         st = self.state
         if self.clock.now.date() == st.day:
             return
+        st.history.append(self.day_stats(st.day))       # close the day that just ended
+        st.history = st.history[-6:]
         st.day = self.clock.now.date()
         st.locked = {m.compartment: True for m in self.plan.medications}
         st.taken.clear(); st.held_for_food.clear(); st.unlocked_at.clear()
@@ -251,6 +254,7 @@ class TendEngine:
         if event == "left_bed" and self._is_night():
             for room in ("bedroom", "hallway", "bathroom"):
                 self.state.lights[room] = True
+            self._log("lights", on=True)
             return self._route([Decision("lights_on", "I've turned on the lights to the bathroom.",
                                          rule="R8_night_light_path")])
         if event == "back_in_bed" and self._is_night():
@@ -459,6 +463,8 @@ class TendEngine:
         st, stamp = self.state, self.clock.now.strftime("%H:%M")
         for d in decisions:
             item = {"time": stamp, "message": d.message, "severity": d.severity, "rule": d.rule}
+            if d.severity in ("urgent", "escalate"):
+                self._log("alert", severity=d.severity, rule=d.rule)
             if d.severity == "urgent":
                 d.caregiver = "alerted"
                 st.inbox.append(item)
@@ -546,9 +552,36 @@ class TendEngine:
         self.state.checkin_sent_at = None
         self.state.checkin_reason = ""
 
+    # -- The caregiver's week: what Tend did, and what it needed her for
+    HANDLED = {"remind", "checkin", "unlock", "offer_unlock", "offer_held", "held_for_food",
+               "request_denied", "lights"}
+
+    def day_stats(self, day) -> dict:
+        ev = [e for e in self.state.events if e["time"][:10] == day.isoformat()]
+        count = lambda kind: sum(e["kind"] == kind for e in ev)
+        alerts = [e for e in ev if e["kind"] == "alert"]
+        return {
+            "date": day.isoformat(), "label": day.strftime("%a"), "sample": False,
+            "doses_taken": count("taken"), "doses_due": len(self.plan.medications),
+            "missed": count("missed"), "meals": count("meal"), "water": count("water"),
+            "handled": sum(e["kind"] in self.HANDLED for e in ev),
+            "needs_you": sum(a["severity"] == "escalate" for a in alerts),
+            "urgent": sum(a["severity"] == "urgent" for a in alerts),
+        }
+
+    def week_summary(self) -> dict:
+        self._roll_day()
+        days = self.state.history[-6:] + [self.day_stats(self.clock.now.date())]
+        total = lambda key: sum(d[key] for d in days)
+        return {"days": days, "totals": {
+            "doses_taken": total("doses_taken"), "doses_due": total("doses_due"),
+            "handled": total("handled"), "needs_you": total("needs_you"),
+            "urgent": total("urgent"), "missed": total("missed")}}
+
     def snapshot(self) -> dict:
         self._roll_day()
         return {
+            "week": self.week_summary(),
             "time": self.clock.now.strftime("%H:%M"),
             "locked": {str(k): v for k, v in self.state.locked.items()},
             "patient": self.plan.patient_name,

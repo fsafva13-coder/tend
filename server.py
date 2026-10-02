@@ -5,7 +5,7 @@ Then:  connect MCP Inspector to http://127.0.0.1:8000/mcp
 """
 
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -14,9 +14,27 @@ from tend.engine import CarePlan, SimClock, TendEngine
 
 PLAN_PATH = Path(__file__).parent / "care_plan.json"
 
+# Six earlier days of SAMPLE data so the week view has something to show in a demo.
+# Each row: doses taken, missed, meals, water, handled by Tend, needed caregiver, urgent.
+SAMPLE_WEEK = [(3, 0, 3, 5, 14, 0, 0), (3, 0, 3, 6, 15, 0, 0), (2, 1, 2, 4, 13, 1, 0),
+               (3, 0, 3, 5, 16, 0, 0), (3, 0, 3, 6, 14, 0, 1), (3, 0, 3, 5, 15, 0, 0)]
+
+
+def _seed_sample_week(eng: TendEngine) -> None:
+    today = eng.clock.now.date()
+    for i, (taken, missed, meals, water, handled, needs, urgent) in enumerate(SAMPLE_WEEK):
+        day = today - timedelta(days=len(SAMPLE_WEEK) - i)
+        eng.state.history.append({
+            "date": day.isoformat(), "label": day.strftime("%a"), "sample": True,
+            "doses_taken": taken, "doses_due": len(eng.plan.medications), "missed": missed,
+            "meals": meals, "water": water, "handled": handled,
+            "needs_you": needs, "urgent": urgent})
+
+
 plan = CarePlan.load(PLAN_PATH)
 clock = SimClock(datetime.now().replace(hour=7, minute=0, second=0, microsecond=0))
 engine = TendEngine(plan, clock)
+_seed_sample_week(engine)
 
 
 def _new_day(hhmm: str = "07:00") -> None:
@@ -25,6 +43,7 @@ def _new_day(hhmm: str = "07:00") -> None:
     h, m = map(int, hhmm.split(":"))
     clock = SimClock(datetime.now().replace(hour=h, minute=m, second=0, microsecond=0))
     engine = TendEngine(CarePlan.load(PLAN_PATH), clock)
+    _seed_sample_week(engine)
 
 mcp = FastMCP(
     "tend",
@@ -102,6 +121,13 @@ def start_off_duty(until_hhmm: str) -> dict:
 def get_caregiver_inbox() -> dict:
     """What the caregiver's phone shows: alerts and recaps, plus items queued while off duty."""
     return {"inbox": engine.state.inbox, "queued": engine.state.queue}
+
+
+@mcp.tool()
+def get_week_summary() -> dict:
+    """The caregiver's week: doses taken, what Tend handled itself, and what needed her.
+    Earlier days are sample data (marked sample=true); today is live."""
+    return engine.week_summary()
 
 
 @mcp.tool()

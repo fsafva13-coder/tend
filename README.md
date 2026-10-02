@@ -5,7 +5,7 @@
 ![Track](https://img.shields.io/badge/Hackathon-Alexa%2B%20track-B76E79)
 ![MCP](https://img.shields.io/badge/MCP-2025--11--25%20·%20Streamable%20HTTP-3B2A3F)
 ![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB)
-![Tests](https://img.shields.io/badge/tests-41%20passing-5F8068)
+![Tests](https://img.shields.io/badge/tests-44%20passing-5F8068)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 > Built for the **Build, Ship, Shape: Amazon Developer Hackathon** (Alexa+ track). All code was written during the submission period.
@@ -39,11 +39,12 @@ The result is a parent who never has to wait for help, and a caregiver whose pho
 - **Off duty mode.** Routine events are handled silently, non-urgent problems are held, urgent ones always get through.
 - **Missed-dose alert.** An offered dose that isn't taken relocks the box and is reported.
 - **One recap, not a list of chores.** When off duty ends: what she ate and took, what still needs attention, and one nice moment from her day.
+- **A week at a glance.** Doses taken, what Tend handled itself, what needed her and how many urgent alerts, with a bar per day.
 - **Urgent words never wait.** "Help", "I fell" or "chest pain" alert the caregiver immediately, off duty or not.
 
 **For developers**
 
-- **A real MCP server** with 14 tools over Streamable HTTP (spec 2025-11-25).
+- **A real MCP server** with 15 tools over Streamable HTTP (spec 2025-11-25).
 - **A deterministic rules engine**, with every rule covered by tests. No LLM in the safety path.
 - **A digital twin home** that makes every MCP call visible as it happens.
 
@@ -59,7 +60,7 @@ The result is a parent who never has to wait for help, and a caregiver whose pho
 | Twin backend (MCP client) | Starlette + Uvicorn |
 | Twin front end | HTML, CSS, vanilla JavaScript, inline SVG |
 | Voice | Web Speech API (speech recognition + synthesis) |
-| Tests | pytest (41 tests) |
+| Tests | pytest (44 tests) |
 
 ---
 
@@ -92,7 +93,7 @@ flowchart TD
     A["Parent's Alexa+<br/>voice in, voice out"] -->|what she says| B
     H["Digital twin home<br/>pill box, lights, sensors"] -->|events| B
     P["Caregiver's phone<br/>alerts, off duty, recap"] <-->|alerts and off duty| B
-    B["Twin backend<br/>MCP client"] <-->|MCP 2025-11-25, Streamable HTTP| S["Tend MCP server<br/>14 tools"]
+    B["Twin backend<br/>MCP client"] <-->|MCP 2025-11-25, Streamable HTTP| S["Tend MCP server<br/>15 tools"]
     S --> E["Rules engine<br/>14 tested rules"]
     E <--> C["Care plan + home state<br/>care_plan.json"]
 ```
@@ -154,7 +155,7 @@ python -m pip install -r requirements.txt
 Check that everything works:
 
 ```powershell
-python -m pytest -v             # 41 passed
+python -m pytest -v             # 44 passed
 ```
 
 ---
@@ -211,6 +212,7 @@ Connect with **Streamable HTTP** to `http://127.0.0.1:8000/mcp`.
 | `note_moment` | Save a nice moment for the recap |
 | `start_off_duty` | Caregiver goes off duty until a time |
 | `get_caregiver_inbox` | Alerts, recaps and held items |
+| `get_week_summary` | The caregiver's week: doses, handled by Tend, needed her, urgent |
 | `advance_time`, `set_time`, `reset_day` | Demo clock controls |
 
 ---
@@ -221,7 +223,7 @@ Connect with **Streamable HTTP** to `http://127.0.0.1:8000/mcp`.
 tend/
 ├── run.py                     # One command: starts everything, opens the page
 ├── start.bat                  # Windows: double-click to start
-├── server.py                  # MCP server: 14 tools over Streamable HTTP
+├── server.py                  # MCP server: 15 tools over Streamable HTTP
 ├── care_plan.json             # Medications, meal times and every threshold
 ├── tend/
 │   └── engine.py              # Rules engine, home state, simulated clock
@@ -245,11 +247,13 @@ tend/
 | Measure | Value |
 |---|---|
 | Rules implemented | 14 |
-| Automated tests | 41, all passing |
-| MCP tools | 14 |
+| Automated tests | 44, all passing |
+| MCP tools | 15 |
 | MCP protocol negotiated | 2025-11-25 over Streamable HTTP |
 | External services required | None; runs fully on one laptop |
 | Cost to run | Zero |
+
+The week view on the caregiver's side counts these as they happen. Its earlier days are **sample data** (marked as such in the app and in the tool's output); only today's column is live.
 
 In the walkthrough above, a calm evening produces **one** notification for the caregiver (the recap) while Tend handles the reminders itself. Urgent words reach her at once, even when she is off duty.
 
@@ -272,7 +276,7 @@ In the walkthrough above, a calm evening produces **one** notification for the c
 - Smarter urgent-word detection: "that was helpful" currently matches "help". A false alarm is the safer failure, but it should be rare.
 - Real devices: Alexa-compatible smart lock pill dispenser, lights and motion sensors in place of the simulation.
 - Deliver caregiver alerts to a real phone: Alexa app notifications first, text messages for urgent alerts, then a small companion app with the Off duty button and recap.
-- A week view for the caregiver: adherence, sleep interruptions, alerts and interruptions avoided.
+- Build the week view from stored history. Today's column is live; the six earlier days are sample data seeded for the demo.
 - Several caregivers with a handover between them.
 - Caregiver-editable care plan in the app instead of a JSON file.
 

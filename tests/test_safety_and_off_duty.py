@@ -202,3 +202,34 @@ def test_recap_is_honest_about_what_is_still_open(engine):
     assert "quiet" not in recap.message
     assert "hasn't had dinner" in recap.message
     assert "20:00 Metformin 500mg hasn't been taken" in recap.message
+
+
+# ---- The caregiver's week view
+def test_week_counts_what_tend_handled_and_what_needed_her(engine):
+    engine.clock.set_time("09:05")
+    engine.request_pills()
+    engine.mark_taken(2)
+    engine.log_water()
+    engine.heard("help")
+    today = engine.week_summary()["days"][-1]
+    assert today["doses_taken"] == 1 and today["doses_due"] == 3
+    assert today["water"] == 1 and today["urgent"] == 1
+    assert today["handled"] >= 1 and today["sample"] is False
+
+
+def test_week_keeps_a_summary_of_each_finished_day(engine):
+    engine.clock.set_time("09:05")
+    engine.request_pills()
+    engine.mark_taken(2)
+    engine.clock.set_time("02:00")           # next day
+    week = engine.week_summary()
+    assert len(week["days"]) == 2
+    assert week["days"][0]["doses_taken"] == 1 and week["days"][1]["doses_taken"] == 0
+    assert week["totals"]["doses_due"] == 6
+
+
+def test_missed_dose_shows_in_the_week(engine):
+    engine.clock.set_time("08:55")
+    run(engine, 70)                          # the 08:00 and 09:00 doses are offered, never taken
+    today = engine.week_summary()["days"][-1]
+    assert today["missed"] == 2 and today["needs_you"] >= 2

@@ -81,7 +81,7 @@
 
   /* Sara */
   .phone { border: 9px solid var(--plum); border-radius: 34px; padding: 14px 12px; background: var(--ivory);
-           min-height: 430px; }
+           min-height: 300px; }
   .phone.shake { animation: shake .5s 2; }
   @keyframes shake { 25% { transform: translateX(-5px) } 75% { transform: translateX(5px) } }
   #duty { display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -100,6 +100,30 @@
   .note.recap { border-left-color: var(--rose); background: var(--blush); }
   .empty { color: var(--plum-soft); font-size: 13px; text-align: center; padding: 26px 8px; }
   #queued { font-size: 12px; color: var(--plum-soft); margin-top: 8px; text-align: center; }
+
+  /* Week view */
+  .week { margin-top: 16px; }
+  .week h3 { font: 500 16px Georgia, serif; margin: 0 0 2px; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0 12px; }
+  .tile { background: var(--ivory); border: 1px solid var(--line); border-radius: 12px; padding: 9px 11px; }
+  .tile .num { font: 500 24px Georgia, serif; color: var(--plum); line-height: 1.1; }
+  .tile .num small { font-size: 14px; color: var(--plum-soft); }
+  .tile .cap { font-size: 12px; color: var(--plum-soft); }
+  #weekchart { width: 100%; display: block; overflow: visible; }
+  #weekchart .track { fill: var(--line); opacity: .55; }
+  #weekchart .bar { fill: var(--plum); }
+  #weekchart .hit { fill: transparent; cursor: default; }
+  #weekchart .hit:hover + .hl, #weekchart .hit:focus + .hl { opacity: 1; }
+  #weekchart .hl { fill: none; stroke: var(--rose); stroke-width: 1.5; opacity: 0; pointer-events: none; }
+  #weekchart text { font: 11px "Segoe UI", sans-serif; fill: var(--plum-soft); }
+  #weekchart text.today { fill: var(--plum); font-weight: 700; }
+  #weekchart text.val { fill: var(--plum); }
+  #weektip { position: fixed; z-index: 5; background: var(--plum); color: #fff; font-size: 12px; line-height: 1.45;
+             padding: 7px 10px; border-radius: 9px; pointer-events: none; display: none; max-width: 220px; }
+  .week details { margin-top: 8px; font-size: 12px; color: var(--plum-soft); }
+  .week table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  .week th, .week td { text-align: right; padding: 3px 4px; border-bottom: 1px solid var(--line); }
+  .week th:first-child, .week td:first-child { text-align: left; }
 
   /* MCP log */
   #logwrap { margin: 0 24px 24px; }
@@ -187,9 +211,19 @@
       <div id="inbox"></div>
       <div id="queued"></div>
     </div>
+    <div class="week">
+      <h3>This week</h3>
+      <div class="sub" style="margin-bottom:0">What Tend handled, and what needed you.</div>
+      <div class="tiles" id="tiles"></div>
+      <div class="sub" style="margin-bottom:4px">Doses taken per day</div>
+      <svg id="weekchart" viewBox="0 0 300 96" role="img" aria-label="Doses taken per day this week"></svg>
+      <details><summary>Show as a table · earlier days are sample data, today is live</summary>
+        <table id="weektable"></table></details>
+    </div>
   </section>
 </main>
 
+<div id="weektip"></div>
 <div id="logwrap"><div id="log"></div></div>
 <div class="disc">Simulation for demonstration. Tend is not a medical device and never changes a dose.</div>
 
@@ -275,6 +309,7 @@ function render() {
     $("pillbox").appendChild(el);
   }
 
+  renderWeek(s.week);
   const off = !!s.off_duty_until;
   $("duty").classList.toggle("off", off);
   $("dutytxt").textContent = off ? "Off duty until " + s.off_duty_until : "On duty";
@@ -301,6 +336,44 @@ function render() {
   }
   seenInbox = s.caregiver_inbox.length;
 }
+
+function renderWeek(w) {
+  if (!w) return;
+  const t = w.totals, tile = (num, cap) => `<div class="tile"><div class="num">${num}</div><div class="cap">${cap}</div></div>`;
+  $("tiles").innerHTML =
+    tile(`${t.doses_taken}<small> / ${t.doses_due}</small>`, "Doses taken") +
+    tile(t.handled, "Handled by Tend") +
+    tile(t.needs_you, "Needed you") +
+    tile(t.urgent, "Urgent alerts");
+  // One series, one hue: a bar per day on a faint track showing the doses due.
+  const n = w.days.length, slot = 300 / 7, bw = 26, top = 14, base = 74, H = base - top;
+  let svg = "";
+  w.days.forEach((d, i) => {
+    const x = (7 - n + i) * slot + (slot - bw) / 2, isToday = i === n - 1;
+    const hgt = d.doses_due ? H * d.doses_taken / d.doses_due : 0, y = base - hgt;
+    const tip = `${d.label}${isToday ? " (today, live)" : d.sample ? " (sample)" : ""}: ${d.doses_taken} of ${d.doses_due} doses` +
+      (d.missed ? `, ${d.missed} missed` : "") + `. Tend handled ${d.handled}; needed you ${d.needs_you}; urgent ${d.urgent}.`;
+    svg += `<rect class="track" x="${x}" y="${top}" width="${bw}" height="${H}" rx="4"/>`;
+    if (hgt > 0) svg += `<path class="bar" d="M${x} ${base}V${y + 4}q0 -4 4 -4h${bw - 8}q4 0 4 4V${base}z"/>`;
+    if (d.doses_taken < d.doses_due && !isToday) svg += `<text class="val" x="${x + bw / 2}" y="${top - 4}" text-anchor="middle">${d.doses_taken}/${d.doses_due}</text>`;
+    svg += `<text class="${isToday ? "today" : ""}" x="${x + bw / 2}" y="${base + 15}" text-anchor="middle">${isToday ? "Today" : d.label}</text>`;
+    svg += `<rect class="hit" tabindex="0" x="${x - 6}" y="0" width="${bw + 12}" height="96" data-tip="${tip}"/>` +
+           `<rect class="hl" x="${x - 2}" y="${top - 2}" width="${bw + 4}" height="${H + 4}" rx="6"/>`;
+  });
+  svg += `<line x1="0" x2="300" y1="${base + .5}" y2="${base + .5}" stroke="var(--line)"/>`;
+  $("weekchart").innerHTML = svg;
+  $("weektable").innerHTML = "<tr><th>Day</th><th>Doses</th><th>Missed</th><th>Handled</th><th>Needed you</th><th>Urgent</th></tr>" +
+    w.days.map((d, i) => `<tr><td>${i === n - 1 ? "Today" : d.label}</td><td>${d.doses_taken}/${d.doses_due}</td><td>${d.missed}</td><td>${d.handled}</td><td>${d.needs_you}</td><td>${d.urgent}</td></tr>`).join("");
+}
+const tipEl = () => $("weektip");
+document.addEventListener("mousemove", e => {
+  const t = e.target.closest && e.target.closest(".hit");
+  if (!t) { tipEl().style.display = "none"; return; }
+  tipEl().textContent = t.dataset.tip; tipEl().style.display = "block";
+  const w = tipEl().offsetWidth;
+  tipEl().style.left = Math.min(e.clientX + 12, innerWidth - w - 8) + "px";
+  tipEl().style.top = (e.clientY - tipEl().offsetHeight - 10) + "px";
+});
 
 async function run(fn) {
   if (busy) { setTimeout(() => run(fn), 120); return; }  // wait for the call in flight
