@@ -76,6 +76,7 @@ class Decision:
     severity: str = "routine"  # "routine" | "escalate" | "urgent"
     compartment: Optional[int] = None
     rule: str = ""       # which rule fired, for logs and tests
+    caregiver: str = "none"  # "none" | "alerted" | "queued"  (set by off-duty routing)
 
 
 @dataclass
@@ -93,6 +94,14 @@ class HomeState:
     lights: dict[str, bool] = field(default_factory=lambda: {
         "bedroom": False, "hallway": False, "bathroom": False, "kitchen": False})
     fired: set[str] = field(default_factory=set)  # one-shot reminders already sent
+    bathroom_since: Optional[datetime] = None
+    last_activity: Optional[datetime] = None
+    off_duty_from: Optional[datetime] = None
+    off_duty_until: Optional[datetime] = None
+    inbox: list[dict] = field(default_factory=list)    # what the caregiver's phone shows
+    queue: list[dict] = field(default_factory=list)    # held until off duty ends
+    handled: list[dict] = field(default_factory=list)  # done silently while off duty
+    moments: list[str] = field(default_factory=list)   # nice things from her day
 
 
 # ---------------------------------------------------------------- engine
@@ -102,9 +111,15 @@ class TendEngine:
         self.clock = clock
         self.state = HomeState(locked={m.compartment: True for m in plan.medications})
 
+    # Events that prove the patient is up and about.
+    ACTIVITY = {"unlock", "request_denied", "held_for_food", "meal", "taken", "water",
+                "checkin_reply", "motion", "heard"}
+
     # -- helpers
     def _log(self, kind: str, **data) -> None:
         self.state.events.append({"time": self.clock.now.isoformat(), "kind": kind, **data})
+        if kind in self.ACTIVITY:
+            self.state.last_activity = self.clock.now
 
     def _due_med(self) -> Optional[Medication]:
         """The medication whose time window is open right now and not yet taken."""
@@ -195,52 +210,113 @@ class TendEngine:
     def patient_replied(self) -> Decision:
         """Patient answered a check-in ("I'm fine")."""
         self._log("checkin_reply", reason=self.state.checkin_reason)
+        if self.state.checkin_reason == "bathroom":
+            self.state.bathroom_since = self.clock.now  # restart the timer
         self._clear_checkin()
         return Decision("none", "Good to hear. I'm here if you need me.", rule="reply")
 
     def motion(self, event: str) -> list[Decision]:
-        """Motion sensor events: 'left_bed', 'back_in_bed'."""
+        """Sensor events: 'left_bed', 'back_in_bed', 'entered_bathroom', 'left_bathroom'."""
         self._log("motion", event=event)
+        if event == "entered_bathroom":
+            self.state.bathroom_since = self.clock.now
+        elif event == "left_bathroom":
+            self.state.bathroom_since = None
+            if self.state.checkin_reason == "bathroom":
+                self._clear_checkin()
         # Rule 8: at night, light a path from the bed to the bathroom.
         if event == "left_bed" and self._is_night():
             for room in ("bedroom", "hallway", "bathroom"):
                 self.state.lights[room] = True
-            return [Decision("lights_on", "I've turned on the lights to the bathroom.",
-                             rule="R8_night_light_path")]
+            return self._route([Decision("lights_on", "I've turned on the lights to the bathroom.",
+                                         rule="R8_night_light_path")])
         if event == "back_in_bed" and self._is_night():
             for room in ("bedroom", "hallway", "bathroom"):
                 self.state.lights[room] = False
-            return [Decision("lights_off", "Lights off. Sleep well.", rule="R8_lights_off")]
+            return self._route([Decision("lights_off", "Lights off. Sleep well.",
+                                         rule="R8_lights_off")])
         return []
 
     # -- time-based rules, called every simulated minute
     def tick(self) -> list[Decision]:
         out: list[Decision] = []
-        for rule in (self._r4_unopened, self._r5_toilet, self._r6_water, self._r7_meals):
+        for rule in (self._no_reply, self._r4_unopened, self._r9_bathroom, self._r10_no_movement,
+                     self._r5_toilet, self._r6_water, self._r7_meals):
             d = rule()
             if d:
                 out.append(d)
+        out = self._route(out)
+        recap = self._r13_recap()
+        if recap:
+            out.append(recap)
         return out
+
+    # -- check-ins: ask first, alert the caregiver only if there is no answer
+    def _checkin(self, reason: str, message: str, rule: str, **kw) -> Decision:
+        self.state.checkin_sent_at = self.clock.now
+        self.state.checkin_reason = reason
+        self._log("checkin", reason=reason)
+        return Decision("remind", message, rule=rule, **kw)
+
+    def _no_reply(self) -> Optional[Decision]:
+        st = self.state
+        if not st.checkin_sent_at:
+            return None
+        wait = timedelta(minutes=self.plan.t("no_reply_escalate_minutes"))
+        if self.clock.now - st.checkin_sent_at < wait:
+            return None
+        reason, name = st.checkin_reason, self.plan.patient_name
+        self._log("escalate", reason=reason)
+        self._clear_checkin()
+        if reason.startswith("unopened"):
+            return Decision("escalate", f"{name} hasn't taken her pills and isn't answering.",
+                            severity="escalate", rule="R4_no_reply_escalate")
+        if reason == "bathroom":
+            st.bathroom_since = None
+            return Decision("escalate", f"{name} has been in the bathroom a long time and "
+                            "isn't answering. Please check on her now.",
+                            severity="urgent", rule="R9_bathroom_urgent")
+        return Decision("escalate", f"No movement from {name} this morning and she isn't "
+                        "answering. Please check on her now.",
+                        severity="urgent", rule="R10_no_movement_urgent")
 
     def _r4_unopened(self) -> Optional[Decision]:
         now, th = self.clock.now, self.plan.thresholds
-        # Rule 4b: check-in sent and no reply -> alert the caregiver.
-        if self.state.checkin_sent_at and self.state.checkin_reason.startswith("unopened"):
-            if now - self.state.checkin_sent_at >= timedelta(minutes=th["no_reply_escalate_minutes"]):
-                self._log("escalate", reason=self.state.checkin_reason)
-                self._clear_checkin()
-                return Decision("escalate",
-                                f"{self.plan.patient_name} hasn't taken her pills and isn't answering.",
-                                severity="escalate", rule="R4_no_reply_escalate")
-            return None
+        if self.state.checkin_sent_at:
+            return None  # one check-in at a time
         # Rule 4a: unlocked but not opened in time -> gentle voice check-in.
         for comp, at in self.state.unlocked_at.items():
-            if now - at >= timedelta(minutes=th["unopened_checkin_minutes"]):
-                self.state.checkin_sent_at = now
-                self.state.checkin_reason = f"unopened:{comp}"
-                self._log("checkin", reason=self.state.checkin_reason)
-                return Decision("remind", "Your pills are ready in the box. Are you okay?",
-                                compartment=comp, rule="R4_unopened_checkin")
+            key = f"unopened:{comp}:{at.isoformat()}"
+            if key not in self.state.fired and \
+                    now - at >= timedelta(minutes=th["unopened_checkin_minutes"]):
+                self.state.fired.add(key)
+                return self._checkin(f"unopened:{comp}",
+                                     "Your pills are ready in the box. Are you okay?",
+                                     "R4_unopened_checkin", compartment=comp)
+        return None
+
+    def _r9_bathroom(self) -> Optional[Decision]:
+        st = self.state
+        if st.checkin_sent_at or not st.bathroom_since:
+            return None
+        if self.clock.now - st.bathroom_since >= timedelta(
+                minutes=self.plan.t("bathroom_checkin_minutes")):
+            return self._checkin("bathroom", "You've been in the bathroom a while. Are you okay?",
+                                 "R9_bathroom_checkin")
+        return None
+
+    def _r10_no_movement(self) -> Optional[Decision]:
+        st, th = self.state, self.plan.thresholds
+        key = f"no_movement:{self.clock.now.date()}"
+        if st.checkin_sent_at or key in st.fired:
+            return None
+        deadline = self._at(th["usual_wake_time"]) + timedelta(minutes=th["no_movement_grace_minutes"])
+        today = self.clock.now.replace(hour=0, minute=0, second=0, microsecond=0)
+        active_today = st.last_activity is not None and st.last_activity >= today
+        if self.clock.now >= deadline and not active_today:
+            st.fired.add(key)
+            return self._checkin("no_movement", "Good morning. Are you awake and okay?",
+                                 "R10_no_movement_checkin")
         return None
 
     def _r5_toilet(self) -> Optional[Decision]:
@@ -278,6 +354,84 @@ class TendEngine:
                                 rule="R7_meal_reminder")
         return None
 
+    # -- Rule 11: urgent words are never delayed, even when the caregiver is off duty
+    def heard(self, text: str) -> list[Decision]:
+        self._log("heard", text=text)
+        low = text.lower()
+        if any(p in low for p in self.plan.t("urgent_phrases")):
+            self._clear_checkin()
+            d = Decision("escalate", f'{self.plan.patient_name} said: "{text}". '
+                         "Please check on her now.", severity="urgent", rule="R11_urgent_words")
+            return self._route([d])
+        return []
+
+    def note_moment(self, text: str) -> None:
+        """Something nice from her day, saved for the evening recap."""
+        self.state.moments.append(text)
+
+    # -- Rule 12: off duty. Routine = handled silently, escalate = queued, urgent = breaks through
+    def start_off_duty(self, until_hhmm: str) -> Decision:
+        self.state.off_duty_from = self.clock.now
+        self.state.off_duty_until = self._at(until_hhmm)
+        self._log("off_duty", until=until_hhmm)
+        return Decision("none", f"You're off duty until {until_hhmm}. I'll only interrupt "
+                        "you for an emergency.", rule="R12_off_duty_start")
+
+    def _off_duty(self) -> bool:
+        u = self.state.off_duty_until
+        return u is not None and self.clock.now < u
+
+    def _route(self, decisions: list[Decision]) -> list[Decision]:
+        st, stamp = self.state, self.clock.now.strftime("%H:%M")
+        for d in decisions:
+            item = {"time": stamp, "message": d.message, "severity": d.severity, "rule": d.rule}
+            if d.severity == "urgent":
+                d.caregiver = "alerted"
+                st.inbox.append(item)
+            elif d.severity == "escalate":
+                if self._off_duty():
+                    d.caregiver = "queued"
+                    st.queue.append(item)
+                else:
+                    d.caregiver = "alerted"
+                    st.inbox.append(item)
+            elif self._off_duty():
+                st.handled.append(item)
+        return decisions
+
+    # -- Rule 13: when off duty ends, one short recap instead of a list of chores
+    def _r13_recap(self) -> Optional[Decision]:
+        st = self.state
+        if st.off_duty_until is None or self.clock.now < st.off_duty_until:
+            return None
+        text = self.build_recap()
+        st.inbox.append({"time": self.clock.now.strftime("%H:%M"), "message": text,
+                         "severity": "routine", "rule": "R13_recap"})
+        st.off_duty_from = st.off_duty_until = None
+        st.queue.clear()
+        st.handled.clear()
+        return Decision("recap", text, rule="R13_recap", caregiver="alerted")
+
+    def build_recap(self) -> str:
+        st, name = self.state, self.plan.patient_name
+        since = st.off_duty_from or self.clock.now.replace(hour=0, minute=0)
+        ev = [e for e in st.events if datetime.fromisoformat(e["time"]) >= since]
+        doses = sum(e["kind"] == "taken" for e in ev)
+        meals = [e["meal"] for e in ev if e["kind"] == "meal"]
+        waters = sum(e["kind"] == "water" for e in ev)
+        parts = [f"While you were off duty: {name} took {doses} dose{'s' if doses != 1 else ''}"]
+        parts.append(f"ate {', '.join(meals)}" if meals else "no meal logged")
+        parts.append(f"drank water {waters} time{'s' if waters != 1 else ''}")
+        text = ", ".join(parts) + f". I handled {len(st.handled)} reminder" \
+            + ("s" if len(st.handled) != 1 else "") + " for you."
+        if st.queue:
+            text += " Needs you: " + " ".join(q["message"] for q in st.queue)
+        else:
+            text += " Nothing needs you tonight."
+        if st.moments:
+            text += f" Something nice: {st.moments[-1]}"
+        return text
+
     # -- helpers
     def _at(self, hhmm: str) -> datetime:
         h, m = map(int, hhmm.split(":"))
@@ -300,5 +454,10 @@ class TendEngine:
             "meals": [(m, t.strftime("%H:%M")) for m, t in self.state.meals_logged],
             "lights": self.state.lights,
             "checkin_pending": self.state.checkin_reason or None,
+            "in_bathroom": self.state.bathroom_since is not None,
+            "off_duty_until": self.state.off_duty_until.strftime("%H:%M")
+            if self.state.off_duty_until else None,
+            "caregiver_inbox": self.state.inbox[-10:],
+            "queued_for_caregiver": list(self.state.queue),
             "recent_events": self.state.events[-10:],
         }

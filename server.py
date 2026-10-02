@@ -67,8 +67,33 @@ def patient_replied() -> dict:
 
 @mcp.tool()
 def motion(event: str) -> list[dict]:
-    """Motion sensor event: 'left_bed' or 'back_in_bed'. Lights a path at night."""
+    """Sensor event: 'left_bed', 'back_in_bed', 'entered_bathroom' or 'left_bathroom'."""
     return [asdict(d) for d in engine.motion(event)]
+
+
+@mcp.tool()
+def heard(text: str) -> list[dict]:
+    """Something the patient said. Urgent words ('help', 'I fell') alert the caregiver at once."""
+    return [asdict(d) for d in engine.heard(text)]
+
+
+@mcp.tool()
+def note_moment(text: str) -> dict:
+    """Save something nice from the patient's day for the caregiver's recap."""
+    engine.note_moment(text)
+    return {"action": "none", "message": "Saved for the recap."}
+
+
+@mcp.tool()
+def start_off_duty(until_hhmm: str) -> dict:
+    """Caregiver goes off duty until a time like '21:00'. Only emergencies break through."""
+    return asdict(engine.start_off_duty(until_hhmm))
+
+
+@mcp.tool()
+def get_caregiver_inbox() -> dict:
+    """What the caregiver's phone shows: alerts and recaps, plus items queued while off duty."""
+    return {"inbox": engine.state.inbox, "queued": engine.state.queue}
 
 
 @mcp.tool()
