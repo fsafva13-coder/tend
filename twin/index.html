@@ -41,7 +41,7 @@
   .card h2 { font-size: 19px; margin-bottom: 2px; }
   .sub { color: var(--plum-soft); font-size: 13px; margin-bottom: 12px; }
 
-  /* Amma */
+  /* Parent panel */
   #chat { height: 330px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
           padding: 4px 2px 8px; }
   .bubble { max-width: 88%; padding: 10px 14px; border-radius: 16px; font-size: 16px; }
@@ -135,7 +135,7 @@
 
 <main>
   <section class="card">
-    <h2 id="pname">Amma</h2>
+    <h2 id="pname">Mom</h2>
     <div class="sub">Talks to Alexa. Tend answers and acts.</div>
     <div id="chat"></div>
     <div class="sayrow">
@@ -162,7 +162,7 @@
       <rect x="40" y="70" width="26" height="60" rx="8" fill="#C2A7B3"/>
       <g id="amma" transform="translate(96,100)">
         <circle r="17" fill="#B76E79"/><circle r="17" fill="none" stroke="#fff" stroke-width="3"/>
-        <text y="6" text-anchor="middle" font-size="17" fill="#fff" font-family="Georgia">A</text>
+        <text id="pinitial" y="6" text-anchor="middle" font-size="17" fill="#fff" font-family="Georgia">M</text>
       </g>
     </svg>
     <div class="acts">
@@ -232,7 +232,7 @@ function logCall(c) {
   $("log").appendChild(row); $("log").scrollTop = 1e9;
 }
 
-// Show what Tend decided. Words for Amma go to her panel; alerts reach Sara via the inbox.
+// Show what Tend decided. Words for the parent go to her panel; alerts reach Sara via the inbox.
 function showDecisions(list) {
   for (const d of list) {
     if (!d || !d.message || d.rule === "R13_recap" || d.rule === "R12_off_duty_start") continue;
@@ -254,6 +254,7 @@ function render() {
   const s = state; if (!s) return;
   $("clock").textContent = s.time;
   $("pname").textContent = s.patient; $("cname").textContent = s.caregiver;
+  $("pinitial").textContent = s.patient.charAt(0).toUpperCase();
   const h = +s.time.slice(0, 2);
   $("plan").classList.toggle("night", h >= 21 || h < 6);
   for (const room of ["bedroom", "hallway", "bathroom", "kitchen"])

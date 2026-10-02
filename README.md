@@ -161,19 +161,25 @@ python -m pytest -v             # 41 passed
 
 ## Usage
 
-Tend runs as two small programs. Use two terminals, both with the virtual environment activated.
-
-**Terminal 1: the MCP server**
+**One command starts everything:**
 
 ```powershell
-python server.py                # http://127.0.0.1:8000/mcp
+python run.py
 ```
 
-**Terminal 2: the digital twin**
+This starts the MCP server and the digital twin, opens `http://127.0.0.1:8080` in your browser, and stops both when you press Ctrl+C. On Windows you can also double-click **`start.bat`**.
+
+<details>
+<summary>Prefer to run the two programs separately?</summary>
+
+Use two terminals, both with the virtual environment activated.
 
 ```powershell
-python twin/app.py              # then open http://127.0.0.1:8080
+python server.py                # Terminal 1: MCP server at http://127.0.0.1:8000/mcp
+python twin/app.py              # Terminal 2: twin at http://127.0.0.1:8080
 ```
+
+</details>
 
 Open the page in Chrome or Edge (needed for voice).
 
@@ -213,6 +219,8 @@ Connect with **Streamable HTTP** to `http://127.0.0.1:8000/mcp`.
 
 ```
 tend/
+├── run.py                     # One command: starts everything, opens the page
+├── start.bat                  # Windows: double-click to start
 ├── server.py                  # MCP server: 14 tools over Streamable HTTP
 ├── care_plan.json             # Medications, meal times and every threshold
 ├── tend/
