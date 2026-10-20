@@ -82,7 +82,9 @@ The result is a parent who never has to wait for help, and a caregiver whose pho
 
 ![Night light path and urgent alert](docs/screenshots/04-night-urgent-alert.png)
 
-> **Demo video:** `[link to be added]`
+> **Demo video (under 3 minutes):** [https://youtu.be/iJUlLaYF9cc](https://youtu.be/iJUlLaYF9cc)
+>
+> [![Watch the Tend demo](https://img.youtube.com/vi/iJUlLaYF9cc/hqdefault.jpg)](https://youtu.be/iJUlLaYF9cc)
 
 ---
 
@@ -284,7 +286,7 @@ In the walkthrough above, a calm evening produces **one** notification for the c
 
 ## Demo
 
-- **Video:** `[link to be added]`
+- **Video:** [https://youtu.be/iJUlLaYF9cc](https://youtu.be/iJUlLaYF9cc)
 - **Run it yourself:** follow [Installation](#installation) and [Usage](#usage); it takes about two minutes.
 
 ---

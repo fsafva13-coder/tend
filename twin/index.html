@@ -440,6 +440,35 @@ if (SR) {
   $("mic").onclick = () => { try { rec.start(); $("mic").classList.add("on"); } catch (_) {} };
 } else { $("mic").disabled = true; $("mic").title = "Speech recognition needs Chrome or Edge"; }
 
+// Keyboard shortcuts, so a demo can be driven without clicking (and recorded cleanly).
+const KEYS = {
+  p: () => $("play").click(),
+  q: () => run(() => tool("advance_time", { minutes: 15 })),
+  h: () => run(() => tool("advance_time", { minutes: 60 })),
+  m: () => run(() => tool("set_time", { hhmm: "07:00" })),
+  e: () => run(() => tool("set_time", { hhmm: "19:00" })),
+  n: () => { where = "bed"; run(() => tool("set_time", { hhmm: "02:00" })); },
+  r: () => $("reset").click(),
+  o: () => { if (!$("offduty").disabled) $("offduty").click(); },
+  v: () => $("sound").click(),
+  "1": () => say("Can I have my pills?"),
+  "2": () => say("I ate"),
+  "3": () => say("I took my pills"),
+  "4": () => say("The neighbour's cat had kittens!"),
+  "5": () => say("Help, I fell"),
+  b: () => document.querySelector('[data-move="left_bed"]').click(),
+  t: () => document.querySelector('[data-move="entered_bathroom"]').click(),
+  l: () => document.querySelector('[data-move="left_bathroom"]').click(),
+  k: () => document.querySelector('[data-move="kitchen"]').click(),
+  g: () => document.querySelector('[data-move="back_in_bed"]').click(),
+};
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey || e.altKey || e.metaKey) return;
+  if (["INPUT", "SELECT", "TEXTAREA"].includes(document.activeElement.tagName)) return;
+  const f = KEYS[e.key.toLowerCase()];
+  if (f) { e.preventDefault(); f(); }
+});
+
 run(() => api("/api/state"));
 </script>
 </body>
